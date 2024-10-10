@@ -44,6 +44,60 @@ using namespace std;
 #include <srs_protocol_http_stack.hpp>
 #include <srs_core_autofree.hpp>
 
+void srs_parse_query_string0(const string& query, map<string, string>& params);
+
+string remove_duplicate_uri_params(const string& uri) {
+    // Split the URI based on the '?' character
+    size_t pos = uri.find('?');
+
+    if (pos == string::npos) {
+        // If no '?' character found, return the input uri
+        return uri;
+    }
+
+    string base = uri.substr(0, pos); // Get the base URI without query parameters
+    string params = uri.substr(pos + 1); // Get the query parameter string
+
+    // Split the parameter string based on '&' separator and put them in a map
+    // to ensure uniqueness
+    map<string, string> paramMap;
+
+    istringstream iss(params);
+    string param, key, value;
+
+    while (getline(iss, param, '&')) {
+        size_t eqPos = param.find('=');
+
+        if (eqPos == string::npos) {
+            // Handle parameters without '=' sign
+            paramMap[param] = "";
+        } else {
+            key = param.substr(0, eqPos);
+            value = param.substr(eqPos + 1);
+            paramMap[key] = value;
+        }
+    }
+
+    // Build the updated URI string with unique parameters
+    ostringstream updatedUri;
+    updatedUri << base << "?";
+    bool isFirst = true;
+
+    for (auto const& kv : paramMap) {
+        if (!isFirst) {
+            updatedUri << "&";
+        }
+
+        isFirst = false;
+        updatedUri << kv.first;
+        if (!kv.second.empty()) {
+            updatedUri << "=" << kv.second;
+        }
+    }
+
+    return updatedUri.str();
+}
+
 void srs_discovery_tc_url(string tcUrl, string& schema, string& host, string& vhost, string& app, string& stream, int& port, string& param)
 {
     // For compatibility, transform
@@ -55,13 +109,36 @@ void srs_discovery_tc_url(string tcUrl, string& schema, string& host, string& vh
     // Standard URL is:
     //      rtmp://ip/app/app2/stream?k=v
     // Where after last slash is stream.
-    fullUrl += stream.empty() ? "/" : (stream.at(0) == '/' ? stream : "/" + stream);
-    fullUrl += param.empty() ? "" : (param.at(0) == '?' ? param : "?" + param);
+    size_t pos_query = fullUrl.find('?');
+    if (pos_query == string::npos) {
+        fullUrl += stream.empty() ? "/" : (stream.at(0) == '/' ? stream : "/" + stream);
+        fullUrl += param.empty() ? "" : (param.at(0) == '?' ? param : "?" + param);
+    } else {
+        // If there's already a query string in fullUrl, we need to handle it carefully
+        string urlWithoutQuery = fullUrl.substr(0, pos_query);
+        string existingQuery = fullUrl.substr(pos_query + 1);
+        
+        urlWithoutQuery += stream.empty() ? "/" : (stream.at(0) == '/' ? stream : "/" + stream);
+        
+        // Combine existing query with param
+        map<string, string> queryParams;
+        srs_parse_query_string0(existingQuery, queryParams);
+        srs_parse_query_string0(param[0] == '?' ? param.substr(1) : param, queryParams);
+        
+        string combinedQuery = existingQuery;
+        for (auto it = queryParams.begin(); it != queryParams.end(); ++it) {
+            if (!combinedQuery.empty()) combinedQuery += "&";
+            combinedQuery += it->first + "=" + it->second;
+        }
+        
+        fullUrl = urlWithoutQuery + (combinedQuery.empty() ? "" : "?" + combinedQuery);
+    }
+    fullUrl = remove_duplicate_uri_params(fullUrl);
 
     // First, we covert the FMLE URL to standard URL:
     //      rtmp://ip/app/app2?k=v/stream , or:
     //      rtmp://ip/app/app2#k=v/stream
-    size_t pos_query = fullUrl.find_first_of("?#");
+    pos_query = fullUrl.find_first_of("?#");
     size_t pos_rslash = fullUrl.rfind("/");
     if (pos_rslash != string::npos && pos_query != string::npos && pos_query < pos_rslash) {
         fullUrl = fullUrl.substr(0, pos_query) // rtmp://ip/app/app2
@@ -104,6 +181,31 @@ void srs_discovery_tc_url(string tcUrl, string& schema, string& host, string& vh
     // Only one param, the default vhost, clear it.
     if (param.find("&") == string::npos && vhost_in_query == SRS_CONSTS_RTMP_DEFAULT_VHOST) {
         param = "";
+    }
+}
+
+// Helper function to parse query string into a map
+void srs_parse_query_string0(const string& query, map<string, string>& params)
+{
+    size_t start = 0;
+    size_t end = query.find('&');
+    while (end != string::npos) {
+        string keyval = query.substr(start, end - start);
+        size_t equals = keyval.find('=');
+        if (equals != string::npos) {
+            string key = keyval.substr(0, equals);
+            string val = keyval.substr(equals + 1);
+            params[key] = val;
+        }
+        start = end + 1;
+        end = query.find('&', start);
+    }
+    string keyval = query.substr(start);
+    size_t equals = keyval.find('=');
+    if (equals != string::npos) {
+        string key = keyval.substr(0, equals);
+        string val = keyval.substr(equals + 1);
+        params[key] = val;
     }
 }
 
@@ -1022,4 +1124,3 @@ string srs_string_dumps_hex(const char* str, int length, int limit, char seperat
 
     return string(buf, len);
 }
-

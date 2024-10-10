@@ -3587,6 +3587,16 @@ VOID TEST(ProtocolRTMPTest, RTMPRequest)
     srs_discovery_tc_url("rtmp://std.ossrs.net/live?a=1#e=5&c=3#b=2#d=4",
                          req.schema, req.host, req.vhost, req.app, req.stream, req.port, param);
     EXPECT_STREQ("?a=1#e=5&c=3#b=2#d=4", param.c_str());
+
+    param = "?k=v";
+    srs_discovery_tc_url("rtmp://std.ossrs.net/live",
+                         req.schema, req.host, req.vhost, req.app, req.stream, req.port, param);
+    EXPECT_STREQ("?k=v", param.c_str());
+
+    param = "?k=v&k2=v2";
+    srs_discovery_tc_url("rtmp://std.ossrs.net/live?k=v",
+                         req.schema, req.host, req.vhost, req.app, req.stream, req.port, param);
+    EXPECT_STREQ("?k=v&k2=v2", param.c_str()); 
 }
 
 VOID TEST(ProtocolRTMPTest, RTMPHandshakeBytes)
